@@ -9,3 +9,4 @@ CREATE TABLE document_chunks (
     embedding_vector VECTOR(384),
     created_at TIMESTAMP
 );
+

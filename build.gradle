@@ -20,7 +20,15 @@ configurations {
 }
 
 repositories {
-	mavenCentral()
+    mavenCentral()
+    maven { url 'https://repo.spring.io/milestone' }
+    maven { url 'https://repo.spring.io/snapshot' }
+}
+
+dependencyManagement {
+    imports {
+        mavenBom 'org.springframework.ai:spring-ai-bom:1.0.0-SNAPSHOT'
+    }
 }
 
 dependencies {
@@ -32,8 +40,12 @@ dependencies {
 	implementation 'commons-io:commons-io:2.11.0'
 	implementation 'com.microsoft.onnxruntime:onnxruntime:1.16.3'
 	implementation 'org.postgresql:postgresql'
-	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	implementation 'org.springframework.ai:spring-ai-starter-model-openai'
+	implementation 'ai.djl.huggingface:tokenizers:0.24.0'
+	
+	// Spring AI dependencies
+	implementation 'org.springframework.ai:spring-ai-groq-spring-boot-starter'
+	implementation 'org.springframework.ai:spring-ai-vector-store-pgvector'
+	
 	implementation 'org.json:json:20240303'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'

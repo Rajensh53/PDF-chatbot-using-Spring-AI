@@ -2,6 +2,12 @@ package com.example.PDF.chatbot.using.Spring.AI.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import ai.onnxruntime.*;
+import ai.djl.huggingface.tokenizers.HuggingFaceTokenizer;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ai.chat.model.ChatResponse;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -11,102 +17,89 @@ import java.util.*;
 @Slf4j
 public class CustomOnnxService {
 
+    private OrtEnvironment env;
+    private OrtSession session;
+    private HuggingFaceTokenizer tokenizer;
     private boolean modelsLoaded = false;
+    
+    @Autowired
+    private ChatClient chatClient;
 
     public CustomOnnxService() {
         try {
             initializeModels();
         } catch (Exception e) {
             log.error("Failed to initialize ONNX models", e);
+            throw new RuntimeException("ONNX model or tokenizer not loaded. Cannot generate embeddings.");
         }
     }
 
     private void initializeModels() throws Exception {
         log.info("Initializing ONNX models...");
+        // Use absolute paths to avoid issues with backslashes in Windows paths
+        Path modelPath = Paths.get("onnx-output-folder", "model.onnx").toAbsolutePath();
+        Path tokenizerPath = Paths.get("onnx-output-folder", "tokenizer.json").toAbsolutePath();
         
-        // Check if ONNX model exists
-        Path modelPath = Paths.get("onnx-output-folder", "model.onnx");
-        if (modelPath.toFile().exists()) {
+        log.info("Model path: {}", modelPath);
+        log.info("Tokenizer path: {}", tokenizerPath);
+        
+        if (modelPath.toFile().exists() && tokenizerPath.toFile().exists()) {
+            env = OrtEnvironment.getEnvironment();
+            session = env.createSession(modelPath.toString(), new OrtSession.SessionOptions());
+            
+            // Use the tokenizer path as a string with forward slashes
+            String tokenizerPathStr = tokenizerPath.toString().replace("\\", "/");
+            log.info("Using tokenizer path: {}", tokenizerPathStr);
+            tokenizer = HuggingFaceTokenizer.newInstance(tokenizerPathStr);
+            
             modelsLoaded = true;
-            log.info("✅ ONNX model found at: {}", modelPath);
+            log.info("✅ ONNX model and tokenizer loaded.");
         } else {
-            log.warn("⚠️ ONNX model not found at: {}. Using fallback embedding generation.", modelPath);
-            modelsLoaded = false;
+            throw new IllegalStateException("ONNX model or tokenizer not found. Embedding generation will not work.");
         }
     }
 
     public List<Float> generateEmbedding(String text) {
         if (!modelsLoaded) {
-            log.debug("Using fallback embedding generation for text: {}", text.substring(0, Math.min(50, text.length())));
-            return generateDummyEmbedding(text);
+            throw new IllegalStateException("ONNX model or tokenizer not loaded. Cannot generate embeddings.");
         }
-
         try {
-            // For now, use dummy embedding since ONNX integration is complex
-            // In a real implementation, you would use the ONNX model here
-            return generateDummyEmbedding(text);
-            
+            // Tokenize input
+            var encoding = tokenizer.encode(text);
+            long[] inputIds = convertToLongArray(encoding.getIds());
+            long[] attentionMask = convertToLongArray(encoding.getAttentionMask());
+
+            // Prepare input tensors
+            OnnxTensor inputIdsTensor = OnnxTensor.createTensor(env, new long[][]{inputIds});
+            OnnxTensor attentionMaskTensor = OnnxTensor.createTensor(env, new long[][]{attentionMask});
+
+            Map<String, OnnxTensor> inputs = new HashMap<>();
+            inputs.put("input_ids", inputIdsTensor);
+            inputs.put("attention_mask", attentionMaskTensor);
+
+            // Run inference
+            OrtSession.Result result = session.run(inputs);
+
+            // Extract [CLS] embedding (first token)
+            float[][][] embeddings = (float[][][]) result.get(0).getValue();
+            float[] clsEmbedding = embeddings[0][0];
+
+            List<Float> embeddingList = new ArrayList<>();
+            for (float f : clsEmbedding) embeddingList.add(f);
+
+            // Clean up
+            inputIdsTensor.close();
+            attentionMaskTensor.close();
+            result.close();
+
+            return embeddingList;
         } catch (Exception e) {
-            log.error("Error generating embedding", e);
-            return generateDummyEmbedding(text);
+            log.error("Error generating embedding with ONNX model", e);
+            throw new RuntimeException("Failed to generate embedding with ONNX model", e);
         }
-    }
-
-    private List<Float> generateDummyEmbedding(String text) {
-        // Generate a deterministic dummy embedding based on text hash
-        List<Float> embedding = new ArrayList<>();
-        int hash = text.hashCode();
-        Random random = new Random(hash);
-        
-        for (int i = 0; i < 384; i++) {
-            embedding.add(random.nextFloat() * 2 - 1); // Values between -1 and 1
-        }
-        
-        return embedding;
-    }
-
-    public String generateText(String prompt) {
-        if (!modelsLoaded) {
-            return generateSimpleResponse(prompt);
-        }
-
-        try {
-            // For now, use a simple response generation
-            // In a real implementation, you would use the ONNX model for text generation
-            return generateSimpleResponse(prompt);
-            
-        } catch (Exception e) {
-            log.error("Error generating text", e);
-            return generateSimpleResponse(prompt);
-        }
-    }
-
-    private String generateSimpleResponse(String prompt) {
-        // Simple rule-based response generation
-        String lowerPrompt = prompt.toLowerCase();
-        
-        if (lowerPrompt.contains("hello") || lowerPrompt.contains("hi")) {
-            return "Hello! I'm your PDF chatbot. How can I help you with your document?";
-        }
-        
-        if (lowerPrompt.contains("what") || lowerPrompt.contains("how") || lowerPrompt.contains("when") || lowerPrompt.contains("where")) {
-            if (lowerPrompt.contains("context") || lowerPrompt.contains("pdf")) {
-                return "Based on the PDF content you've uploaded, I can help answer your questions. Please ask me something specific about the document.";
-            } else {
-                return "I can help you with questions about your uploaded PDF document. Please ask me something specific about the content.";
-            }
-        }
-        
-        if (lowerPrompt.contains("thank")) {
-            return "You're welcome! Feel free to ask more questions about your PDF.";
-        }
-        
-        // Default response
-        return "I understand your question. Based on the PDF content, I'll do my best to provide a relevant answer. Could you please be more specific about what you'd like to know?";
     }
 
     public String embeddingToString(List<Float> embedding) {
-        // Convert embedding list to string for database storage
         StringBuilder sb = new StringBuilder();
         sb.append("[");
         for (int i = 0; i < embedding.size(); i++) {
@@ -118,7 +111,6 @@ public class CustomOnnxService {
     }
 
     public List<Float> stringToEmbedding(String embeddingString) {
-        // Convert string back to embedding list
         List<Float> embedding = new ArrayList<>();
         String clean = embeddingString.replaceAll("[\\[\\]]", "");
         String[] parts = clean.split(",");
@@ -137,7 +129,55 @@ public class CustomOnnxService {
     }
 
     public void cleanup() {
-        // Cleanup resources if needed
         log.info("Cleaning up ONNX service resources");
     }
-} 
+    
+    /**
+     * Helper method to convert tokenizer output to long array
+     * Handles different possible return types from the tokenizer
+     */
+    private long[] convertToLongArray(Object obj) {
+        if (obj instanceof Long[]) {
+            return Arrays.stream((Long[]) obj).mapToLong(i -> i).toArray();
+        } else if (obj instanceof long[]) {
+            return (long[]) obj;
+        } else if (obj instanceof List) {
+            List<?> list = (List<?>) obj;
+            long[] result = new long[list.size()];
+            for (int i = 0; i < list.size(); i++) {
+                Object item = list.get(i);
+                if (item instanceof Number) {
+                    result[i] = ((Number) item).longValue();
+                } else {
+                    throw new IllegalArgumentException("Unsupported list item type: " + item.getClass());
+                }
+            }
+            return result;
+        } else {
+            throw new IllegalArgumentException("Unsupported type: " + obj.getClass());
+        }
+    }
+    
+    /**
+     * Generate text using AI model with the given prompt
+     * This method uses Spring AI's ChatClient to generate text responses
+     * 
+     * @param prompt The prompt to generate text from
+     * @return The generated text response
+     */
+    public String generateText(String prompt) {
+        log.info("Generating text with prompt: {}", prompt);
+        try {
+            // Use Spring AI's ChatClient to generate text
+            String content = chatClient.prompt()
+                .user(prompt)
+                .call()
+                .content();
+            log.info("Generated text successfully");
+            return content;
+        } catch (Exception e) {
+            log.error("Error generating text with AI model", e);
+            throw new RuntimeException("Failed to generate text with AI model", e);
+        }
+    }
+}
