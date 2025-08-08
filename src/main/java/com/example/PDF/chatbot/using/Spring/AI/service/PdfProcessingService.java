@@ -21,23 +21,24 @@ public class PdfProcessingService {
     private final VectorStore vectorStore;
 
     public void processPdf(MultipartFile file) throws IOException {
+        log.info("PDF upload request received for file: {}", file.getOriginalFilename());
         log.info("Processing PDF file: {}", file.getOriginalFilename());
 
         String extractedText = extractTextFromPdf(file);
-        log.info("Extracted text length: {}", extractedText.length());
+        log.info("Text extracted. Length: {}", extractedText.length());
 
         String cleanedText = cleanText(extractedText);
-        log.info("Cleaned text length: {}", cleanedText.length());
+        log.info("Text cleaned. Length: {}", cleanedText.length());
 
         List<String> chunks = chunkText(cleanedText);
-        log.info("Created {} chunks", chunks.size());
+        log.info("Chunks created: {} chunks", chunks.size());
 
         List<Document> documents = chunks.stream()
                 .map(Document::new)
                 .toList();
 
         vectorStore.add(documents);
-        log.info("Stored {} documents in vector store", documents.size());
+        log.info("Embeddings generated and stored for {} documents in vector store", documents.size());
     }
 
     private String extractTextFromPdf(MultipartFile file) throws IOException {

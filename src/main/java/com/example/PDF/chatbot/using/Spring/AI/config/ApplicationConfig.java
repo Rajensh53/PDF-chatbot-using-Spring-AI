@@ -17,7 +17,7 @@ public class ApplicationConfig {
         return onnxEmbeddingModel;
     }
 
-    @Bean
+        @Bean
     public PgVectorStore vectorStore(JdbcTemplate jdbcTemplate, EmbeddingModel embeddingModel) {
         return new PgVectorStore(jdbcTemplate, embeddingModel);
     }

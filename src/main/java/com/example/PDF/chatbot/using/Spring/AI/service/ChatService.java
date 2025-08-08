@@ -23,10 +23,11 @@ public class ChatService {
     private final ChatModel chatClient;
 
     public String answerQuery(String userQuery) {
-        log.info("Processing user query: {}", userQuery);
+        log.info("User query received: {}", userQuery);
 
+        log.info("Searching for similar documents in vector store...");
         List<Document> similarDocuments = vectorStore.similaritySearch(userQuery);
-        log.info("Found {} relevant documents", similarDocuments.size());
+        log.info("Found {} relevant documents.", similarDocuments.size());
 
         String documentContent = similarDocuments.stream()
                 .map(Document::getContent)
@@ -34,9 +35,10 @@ public class ChatService {
 
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(
                 """
-                You are a helpful assistant who is an expert in answering questions based on the provided context.
-                The context is from a PDF document.
-                Be concise and do not include any preamble.
+                You are a helpful assistant that answers questions based on the provided CONTEXT from a PDF document.
+                If the answer is not explicitly available in the CONTEXT, but can be reasonably inferred, you may do so.
+                If the answer cannot be found or reasonably inferred from the CONTEXT, please state: \"I cannot answer that question based on the provided document.\"
+                Keep your answers concise and to the point.
 
                 CONTEXT:
                 {context}
@@ -49,7 +51,10 @@ public class ChatService {
 
         Prompt prompt = new Prompt(List.of(systemMessage, userMessage));
 
-        return chatClient.call(prompt).getResult().getOutput().getContent();
+        log.info("Generating response from LLM...");
+        String responseContent = chatClient.call(prompt).getResult().getOutput().getContent();
+        log.info("Response generated.");
+        return responseContent;
     }
 }
- 
+

@@ -26,6 +26,7 @@ public class PdfChatController {
      */
     @PostMapping("/upload")
     public ResponseEntity<Map<String, Object>> uploadPdf(@RequestParam("file") MultipartFile file) {
+        log.info("PDF upload request received for file: {}", file.getOriginalFilename());
         try {
             // Validate file
             if (file.isEmpty()) {
@@ -63,6 +64,7 @@ public class PdfChatController {
      */
     @PostMapping("/chat")
     public ResponseEntity<Map<String, Object>> chat(@RequestBody Map<String, String> request) {
+        log.info("Chat request received.");
         try {
             String userQuery = request.get("message");
             
