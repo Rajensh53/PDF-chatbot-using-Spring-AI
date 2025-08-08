@@ -10,4 +10,5 @@ public class PdfChatbotUsingSpringAiApplication {
 		SpringApplication.run(PdfChatbotUsingSpringAiApplication.class, args);
 	}
 
+
 }

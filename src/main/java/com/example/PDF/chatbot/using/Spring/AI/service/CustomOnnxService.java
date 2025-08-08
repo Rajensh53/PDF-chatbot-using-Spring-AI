@@ -1,8 +1,11 @@
 package com.example.PDF.chatbot.using.Spring.AI.service;
 
+import ai.onnxruntime.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.nio.LongBuffer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -11,6 +14,9 @@ import java.util.*;
 @Slf4j
 public class CustomOnnxService {
 
+    private OrtEnvironment environment;
+    private OrtSession session;
+    private Map<String, Integer> tokenizerVocab;
     private boolean modelsLoaded = false;
 
     public CustomOnnxService() {
@@ -23,72 +29,107 @@ public class CustomOnnxService {
 
     private void initializeModels() throws Exception {
         log.info("Initializing ONNX models...");
-        
-        // Check if ONNX model exists
+        environment = OrtEnvironment.getEnvironment();
+
         Path modelPath = Paths.get("onnx-output-folder", "model.onnx");
-        if (modelPath.toFile().exists()) {
+        Path tokenizerPath = Paths.get("onnx-output-folder", "tokenizer.json");
+
+        if (modelPath.toFile().exists() && tokenizerPath.toFile().exists()) {
+            session = environment.createSession(modelPath.toString(), new OrtSession.SessionOptions());
+            log.info("✅ ONNX model loaded from: {}", modelPath);
+
+            // Load tokenizer vocabulary
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> tokenizerJson = mapper.readValue(tokenizerPath.toFile(), Map.class);
+            tokenizerVocab = (Map<String, Integer>) ((Map<String, Object>) tokenizerJson.get("model")).get("vocab");
+            log.info("✅ Tokenizer loaded from: {}", tokenizerPath);
+
             modelsLoaded = true;
-            log.info("✅ ONNX model found at: {}", modelPath);
         } else {
-            log.warn("⚠️ ONNX model not found at: {}. Using fallback embedding generation.", modelPath);
+            log.warn("⚠️ ONNX model or tokenizer not found. Using fallback embedding generation.");
             modelsLoaded = false;
         }
     }
 
     public List<Float> generateEmbedding(String text) {
         if (!modelsLoaded) {
-            log.debug("Using fallback embedding generation for text: {}", text.substring(0, Math.min(50, text.length())));
-            return generateDummyEmbedding(text);
+            throw new IllegalStateException("ONNX models are not loaded. Cannot generate embedding.");
         }
 
         try {
-            // For now, use dummy embedding since ONNX integration is complex
-            // In a real implementation, you would use the ONNX model here
-            return generateDummyEmbedding(text);
-            
+            // 1. Tokenize text
+            List<String> tokens = tokenize(text.toLowerCase());
+            int[] tokenIds = tokens.stream().mapToInt(t -> tokenizerVocab.getOrDefault(t, tokenizerVocab.get("[UNK]"))).toArray();
+
+            // 2. Create input tensor
+            long[] inputIds = Arrays.stream(tokenIds).mapToLong(i -> i).toArray();
+            long[] attentionMask = new long[inputIds.length];
+            Arrays.fill(attentionMask, 1);
+
+            long[] shape = {1, inputIds.length};
+            OnnxTensor inputTensor = OnnxTensor.createTensor(environment, LongBuffer.wrap(inputIds), shape);
+            OnnxTensor attentionMaskTensor = OnnxTensor.createTensor(environment, LongBuffer.wrap(attentionMask), shape);
+
+            Map<String, OnnxTensor> inputs = new HashMap<>();
+            inputs.put("input_ids", inputTensor);
+            inputs.put("attention_mask", attentionMaskTensor);
+
+            // 3. Run inference
+            try (OrtSession.Result result = session.run(inputs)) {
+                float[][][] output = (float[][][]) result.get(0).getValue();
+                return meanPooling(output, attentionMask);
+            }
+
+        } catch (OrtException e) {
+            log.error("Error during ONNX model inference", e);
+            throw new RuntimeException("Failed to generate embedding due to ONNX inference error.", e);
         } catch (Exception e) {
-            log.error("Error generating embedding", e);
-            return generateDummyEmbedding(text);
+            log.error("Unexpected error generating embedding", e);
+            throw new RuntimeException("Failed to generate embedding due to an unexpected error.", e);
         }
+    }
+
+    private List<String> tokenize(String text) {
+        // Simple whitespace tokenizer
+        return Arrays.asList(text.split("\s+"));
+    }
+
+    private List<Float> meanPooling(float[][][] embeddings, long[] attentionMask) {
+        List<Float> meanPooled = new ArrayList<>();
+        int numTokens = embeddings[0].length;
+        int embeddingDim = embeddings[0][0].length;
+
+        for (int i = 0; i < embeddingDim; i++) {
+            float sum = 0.0f;
+            int count = 0;
+            for (int j = 0; j < numTokens; j++) {
+                if (attentionMask[j] == 1) {
+                    sum += embeddings[0][j][i];
+                    count++;
+                }
+            }
+            meanPooled.add(sum / count);
+        }
+        return meanPooled;
     }
 
     private List<Float> generateDummyEmbedding(String text) {
-        // Generate a deterministic dummy embedding based on text hash
-        List<Float> embedding = new ArrayList<>();
-        int hash = text.hashCode();
-        Random random = new Random(hash);
-        
-        for (int i = 0; i < 384; i++) {
-            embedding.add(random.nextFloat() * 2 - 1); // Values between -1 and 1
-        }
-        
-        return embedding;
+        throw new UnsupportedOperationException("Dummy embedding generation is not allowed.");
     }
 
-    public String generateText(String prompt) {
-        if (!modelsLoaded) {
-            return generateSimpleResponse(prompt);
-        }
 
-        try {
-            // For now, use a simple response generation
-            // In a real implementation, you would use the ONNX model for text generation
-            return generateSimpleResponse(prompt);
-            
-        } catch (Exception e) {
-            log.error("Error generating text", e);
-            return generateSimpleResponse(prompt);
-        }
+    public String generateText(String prompt) {
+        throw new UnsupportedOperationException("Text generation is not supported without a loaded model.");
     }
 
     private String generateSimpleResponse(String prompt) {
         // Simple rule-based response generation
         String lowerPrompt = prompt.toLowerCase();
-        
+
         if (lowerPrompt.contains("hello") || lowerPrompt.contains("hi")) {
             return "Hello! I'm your PDF chatbot. How can I help you with your document?";
         }
-        
+
         if (lowerPrompt.contains("what") || lowerPrompt.contains("how") || lowerPrompt.contains("when") || lowerPrompt.contains("where")) {
             if (lowerPrompt.contains("context") || lowerPrompt.contains("pdf")) {
                 return "Based on the PDF content you've uploaded, I can help answer your questions. Please ask me something specific about the document.";
@@ -96,11 +137,11 @@ public class CustomOnnxService {
                 return "I can help you with questions about your uploaded PDF document. Please ask me something specific about the content.";
             }
         }
-        
+
         if (lowerPrompt.contains("thank")) {
             return "You're welcome! Feel free to ask more questions about your PDF.";
         }
-        
+
         // Default response
         return "I understand your question. Based on the PDF content, I'll do my best to provide a relevant answer. Could you please be more specific about what you'd like to know?";
     }
@@ -120,7 +161,7 @@ public class CustomOnnxService {
     public List<Float> stringToEmbedding(String embeddingString) {
         // Convert string back to embedding list
         List<Float> embedding = new ArrayList<>();
-        String clean = embeddingString.replaceAll("[\\[\\]]", "");
+        String clean = embeddingString.replace("[", "").replace("]", "");
         String[] parts = clean.split(",");
         for (String part : parts) {
             try {
@@ -140,4 +181,4 @@ public class CustomOnnxService {
         // Cleanup resources if needed
         log.info("Cleaning up ONNX service resources");
     }
-} 
+}
