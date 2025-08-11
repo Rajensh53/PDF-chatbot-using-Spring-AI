@@ -9,10 +9,10 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 
-
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.springframework.ai.chat.model.ChatModel;
 
 @Service
 @RequiredArgsConstructor
@@ -21,6 +21,8 @@ public class ChatService {
 
     private final VectorStore vectorStore;
     private final ChatModel chatClient;
+
+    private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]*>");
 
     public String answerQuery(String userQuery) {
         log.info("User query received: {}", userQuery);
@@ -32,6 +34,9 @@ public class ChatService {
         String documentContent = similarDocuments.stream()
                 .map(Document::getContent)
                 .collect(Collectors.joining("\n"));
+
+        // Strip HTML tags from document content before sending to LLM
+        documentContent = stripHtmlTags(documentContent);
 
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(
                 """
@@ -54,7 +59,17 @@ public class ChatService {
         log.info("Generating response from LLM...");
         String responseContent = chatClient.call(prompt).getResult().getOutput().getContent();
         log.info("Response generated.");
-        return responseContent;
+
+        // Strip HTML tags from the LLM response before returning
+        return stripHtmlTags(responseContent);
+    }
+
+    private String stripHtmlTags(String htmlString) {
+        if (htmlString == null || htmlString.isEmpty()) {
+            return htmlString;
+        }
+        Matcher matcher = HTML_TAG_PATTERN.matcher(htmlString);
+        return matcher.replaceAll("");
     }
 }
 
