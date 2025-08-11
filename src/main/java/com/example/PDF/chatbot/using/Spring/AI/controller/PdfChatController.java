@@ -8,7 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -29,6 +31,9 @@ public class PdfChatController {
 
     private static final String CHAT_HISTORY_SESSION_KEY = "chatHistory";
 
+    @Value("${spring.servlet.multipart.max-file-size:10MB}")
+    private DataSize maxFileSize;
+
     /**
      * Upload and process PDF file
      */
@@ -42,9 +47,15 @@ public class PdfChatController {
                         .body(Map.of("error", "Please select a file to upload"));
             }
 
-            if (!file.getContentType().equals("application/pdf")) {
+            if (!"application/pdf".equalsIgnoreCase(file.getContentType())) {
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "Only PDF files are allowed"));
+            }
+
+            // Server-side size check based on application.properties
+            if (file.getSize() > maxFileSize.toBytes()) {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Maximum upload size exceeded. Please upload a smaller file."));
             }
 
             // Process PDF
@@ -59,6 +70,10 @@ public class PdfChatController {
                     "fileSize", file.getSize()
             ));
 
+        } catch (IllegalArgumentException e) {
+            log.warn("File upload skipped: {}", e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", e.getMessage()));
         } catch (IOException e) {
             log.error("Error processing PDF file", e);
             return ResponseEntity.internalServerError()

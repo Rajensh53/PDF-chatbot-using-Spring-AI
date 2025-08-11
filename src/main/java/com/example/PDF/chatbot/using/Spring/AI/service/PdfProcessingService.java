@@ -1,5 +1,7 @@
 package com.example.PDF.chatbot.using.Spring.AI.service;
 
+import com.example.PDF.chatbot.using.Spring.AI.entity.UploadedFile;
+import com.example.PDF.chatbot.using.Spring.AI.repository.UploadedFileRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,10 +22,18 @@ import java.util.List;
 public class PdfProcessingService {
 
     private final VectorStore vectorStore;
+    private final UploadedFileRepository uploadedFileRepository;
 
     public void processPdf(MultipartFile file) throws IOException {
-        log.info("PDF upload request received for file: {}", file.getOriginalFilename());
-        log.info("Processing PDF file: {}", file.getOriginalFilename());
+        String fileName = file.getOriginalFilename();
+        log.info("PDF upload request received for file: {}", fileName);
+
+        // Duplicate check
+        if (fileName != null && uploadedFileRepository.findByFileName(fileName).isPresent()) {
+            throw new IllegalArgumentException("File '" + fileName + "' is already uploaded.");
+        }
+
+        log.info("Processing PDF file: {}", fileName);
 
         String extractedText = extractTextFromPdf(file);
         log.info("Text extracted. Length: {}", extractedText.length());
@@ -39,6 +50,9 @@ public class PdfProcessingService {
 
         vectorStore.add(documents);
         log.info("Embeddings generated and stored for {} documents in vector store", documents.size());
+
+        // Record upload marker so next time we can prevent duplicates
+        uploadedFileRepository.save(new UploadedFile(fileName, Instant.now()));
     }
 
     private String extractTextFromPdf(MultipartFile file) throws IOException {
@@ -78,7 +92,7 @@ public class PdfProcessingService {
 
     public void clearVectorStore() {
         log.info("Clearing all documents from vector store");
-        // This is a placeholder. The actual implementation depends on the VectorStore provider.
-        // For PgVectorStore, you might need to truncate the table.
+        // NOTE: clearing the vector store table depends on provider; here we only clear the uploaded files registry
+        uploadedFileRepository.deleteAll();
     }
 }
