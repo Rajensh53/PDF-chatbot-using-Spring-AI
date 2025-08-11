@@ -10,4 +10,5 @@ import java.util.UUID;
 @Repository
 public interface UploadedFileRepository extends JpaRepository<UploadedFile, UUID> {
     Optional<UploadedFile> findByFileName(String fileName);
+    Optional<UploadedFile> findByContentHash(String contentHash);
 }

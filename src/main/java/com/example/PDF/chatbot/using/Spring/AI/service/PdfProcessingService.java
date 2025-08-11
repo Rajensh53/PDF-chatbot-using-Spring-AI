@@ -12,8 +12,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 
 @Service
@@ -28,9 +32,12 @@ public class PdfProcessingService {
         String fileName = file.getOriginalFilename();
         log.info("PDF upload request received for file: {}", fileName);
 
-        // Duplicate check
-        if (fileName != null && uploadedFileRepository.findByFileName(fileName).isPresent()) {
-            throw new IllegalArgumentException("File '" + fileName + "' is already uploaded.");
+        // Compute content hash (SHA-256 of file bytes) to prevent duplicate uploads by renamed files
+        String contentHash = sha256Hex(file.getBytes());
+
+        // Duplicate by content check
+        if (uploadedFileRepository.findByContentHash(contentHash).isPresent()) {
+            throw new IllegalArgumentException("This file content is already uploaded (duplicate detected).");
         }
 
         log.info("Processing PDF file: {}", fileName);
@@ -51,8 +58,8 @@ public class PdfProcessingService {
         vectorStore.add(documents);
         log.info("Embeddings generated and stored for {} documents in vector store", documents.size());
 
-        // Record upload marker so next time we can prevent duplicates
-        uploadedFileRepository.save(new UploadedFile(fileName, Instant.now()));
+        // Record upload marker (by name and content hash)
+        uploadedFileRepository.save(new UploadedFile(fileName, contentHash, Instant.now()));
     }
 
     private String extractTextFromPdf(MultipartFile file) throws IOException {
@@ -92,7 +99,17 @@ public class PdfProcessingService {
 
     public void clearVectorStore() {
         log.info("Clearing all documents from vector store");
-        // NOTE: clearing the vector store table depends on provider; here we only clear the uploaded files registry
+        // Clear registry only; truncation of vector table is provider-specific
         uploadedFileRepository.deleteAll();
+    }
+
+    private static String sha256Hex(byte[] input) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(input);
+            return HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
     }
 }
