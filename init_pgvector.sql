@@ -6,3 +6,6 @@ CREATE TABLE vector_store (
     metadata JSONB,
     embedding VECTOR(384)
 );
+
+-- Create an HNSW index for faster similarity search
+CREATE INDEX ON vector_store USING HNSW (embedding vector_l2_ops);

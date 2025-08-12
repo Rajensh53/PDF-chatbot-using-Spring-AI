@@ -85,50 +85,47 @@ public class PdfChatController {
         }
     }
 
-    /**
-     * Chat with the PDF content
-     */
-    @PostMapping("/chat")
-    public ResponseEntity<Map<String, Object>> chat(@RequestBody Map<String, String> request, HttpSession session) {
-        log.info("Chat request received.");
-        try {
-            String userQuery = request.get("message");
-            
-            if (userQuery == null || userQuery.trim().isEmpty()) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Message cannot be empty"));
-            }
+    
 
-            // Retrieve or initialize chat history
-            List<Message> chatHistory = (List<Message>) session.getAttribute(CHAT_HISTORY_SESSION_KEY);
-            if (chatHistory == null) {
-                chatHistory = new ArrayList<>();
-            }
+    @PostMapping(value = "/chat-stream", produces = org.springframework.http.MediaType.TEXT_EVENT_STREAM_VALUE)
+    public reactor.core.publisher.Flux<String> chatStream(@RequestBody Map<String, String> request, HttpSession session) {
+        log.info("Streaming chat request received.");
+        String userQuery = request.get("message");
 
-            // Add user message to history
-            UserMessage userMessage = new UserMessage(userQuery.trim());
-            chatHistory.add(userMessage);
-
-            // Get answer from chat service, passing the history
-            String answer = chatService.answerQuery(userQuery.trim(), chatHistory);
-
-            // Add assistant message to history
-            AssistantMessage assistantMessage = new AssistantMessage(answer);
-            chatHistory.add(assistantMessage);
-
-            // Store updated history in session
-            session.setAttribute(CHAT_HISTORY_SESSION_KEY, chatHistory);
-
-            return ResponseEntity.ok(Map.of(
-                    "answer", answer,
-                    "question", userQuery
-            ));
-
-        } catch (Exception e) {
-            log.error("Error during chat", e);
-            return ResponseEntity.internalServerError()
-                    .body(Map.of("error", "Failed to process chat request: " + e.getMessage()));
+        if (userQuery == null || userQuery.trim().isEmpty()) {
+            return reactor.core.publisher.Flux.just("Error: Message cannot be empty");
         }
+
+        // Retrieve or initialize chat history
+        List<Message> chatHistory = (List<Message>) session.getAttribute(CHAT_HISTORY_SESSION_KEY);
+        if (chatHistory == null) {
+            chatHistory = new ArrayList<>();
+        }
+
+        // Add user message to history
+        chatHistory.add(new UserMessage(userQuery.trim()));
+
+        // Get answer from chat service
+        return chatService.answerQueryStream(userQuery.trim(), chatHistory);
+    }
+
+    @PostMapping("/history")
+    public ResponseEntity<Void> saveHistory(@RequestBody Map<String, String> request, HttpSession session) {
+        String userQuery = request.get("userQuery");
+        String assistantResponse = request.get("assistantResponse");
+
+        List<Message> chatHistory = (List<Message>) session.getAttribute(CHAT_HISTORY_SESSION_KEY);
+        if (chatHistory == null) {
+            chatHistory = new ArrayList<>();
+        }
+
+        // Add user and assistant messages to history
+        chatHistory.add(new UserMessage(userQuery));
+        chatHistory.add(new AssistantMessage(assistantResponse));
+
+        session.setAttribute(CHAT_HISTORY_SESSION_KEY, chatHistory);
+
+        return ResponseEntity.ok().build();
     }
 
     /**

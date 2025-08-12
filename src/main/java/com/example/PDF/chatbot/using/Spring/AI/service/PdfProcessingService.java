@@ -78,8 +78,8 @@ public class PdfProcessingService {
 
     private List<String> chunkText(String text) {
         List<String> chunks = new ArrayList<>();
-        int chunkSize = 500;
-        int overlap = 50;
+        int chunkSize = 1000;
+        int overlap = 100;
 
         for (int i = 0; i < text.length(); i += chunkSize - overlap) {
             int end = Math.min(i + chunkSize, text.length());

@@ -50,8 +50,7 @@
             margin-bottom: 25px;
         }
 
-        .upload-section,
-        .chat-section {
+        .upload-section, .chat-section {
             background-color: #ffffff;
             border: 1px solid var(--border-color);
             border-radius: 8px;
@@ -181,56 +180,11 @@
             cursor: not-allowed;
         }
 
-        .dot-flashing {
-            position: relative;
-            width: 10px;
-            height: 10px;
-            border-radius: 5px;
-            background-color: var(--primary-dark);
-            color: var(--primary-dark);
-            animation: dotFlashing 1s infinite linear alternate;
-            animation-delay: .5s;
-            display: inline-block;
-            margin: 0 4px;
+        .loading-gif {
+            max-width: 50px;
+            height: auto;
         }
 
-        .dot-flashing::before, .dot-flashing::after {
-            content: '';
-            display: inline-block;
-            position: absolute;
-            top: 0;
-        }
-
-        .dot-flashing::before {
-            left: -15px;
-            width: 10px;
-            height: 10px;
-            border-radius: 5px;
-            background-color: var(--primary-dark);
-            color: var(--primary-dark);
-            animation: dotFlashing 1s infinite alternate;
-            animation-delay: 0s;
-        }
-
-        .dot-flashing::after {
-            left: 15px;
-            width: 10px;
-            height: 10px;
-            border-radius: 5px;
-            background-color: var(--primary-dark);
-            color: var(--primary-dark);
-            animation: dotFlashing 1s infinite alternate;
-            animation-delay: 1s;
-        }
-
-        @keyframes dotFlashing {
-            0% {
-                background-color: var(--primary-dark);
-            }
-            50%, 100% {
-                background-color: rgba(60, 142, 60, 0.2);
-            }
-        }
     </style>
 </head>
 <body>
@@ -305,31 +259,71 @@
         function sendMessage() {
             const input = document.getElementById('chatInput');
             const message = input.value.trim();
-            
+
             if (!message) return;
-            
+
             addMessage('user', message);
             input.value = '';
             showTypingIndicator();
-            
-            fetch(`${API_BASE}/chat`, {
+
+            let botResponse = '';
+
+            fetch(`${API_BASE}/chat-stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: message })
             })
-            .then(response => response.json())
-            .then(data => {
-                hideTypingIndicator();
-                if (data.error) {
-                    addMessage('bot', `Error: ${data.error}`);
-                } else {
-                    addMessage('bot', data.answer);
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                function read() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            const indicator = document.getElementById('typingIndicator');
+                            if (indicator) {
+                                indicator.removeAttribute('id');
+                            }
+                            saveHistory(message, botResponse);
+                            return;
+                        }
+
+                        const chunk = decoder.decode(value, { stream: true });
+                        botResponse += chunk;
+                        const indicator = document.getElementById('typingIndicator');
+                        if (indicator) {
+                            indicator.innerHTML = formatMessage(botResponse);
+                        }
+
+                        read();
+                    });
+                }
+
+                read();
+            })
+            .catch(error => {
+                console.error('Fetch streaming failed:', error);
+                const indicator = document.getElementById('typingIndicator');
+                if (indicator) {
+                    indicator.innerHTML = formatMessage('Sorry, an error occurred during streaming.');
+                    indicator.removeAttribute('id');
+                }
+            });
+        }
+
+        function saveHistory(userQuery, assistantResponse) {
+            fetch(`${API_BASE}/history`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userQuery, assistantResponse })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    console.error('Failed to save chat history');
                 }
             })
             .catch(error => {
-                hideTypingIndicator();
-                addMessage('bot', 'Sorry, an error occurred.');
-                console.error(error);
+                console.error('Error saving chat history:', error);
             });
         }
 
@@ -373,16 +367,9 @@
             const indicator = document.createElement('div');
             indicator.id = 'typingIndicator';
             indicator.className = 'message bot';
-            indicator.innerHTML = '<div class="dot-flashing"></div>';
+            indicator.innerHTML = '<img src="assets/loading.gif" alt="Typing..." class="loading-gif" />';
             messages.appendChild(indicator);
             messages.scrollTop = messages.scrollHeight;
-        }
-
-        function hideTypingIndicator() {
-            const indicator = document.getElementById('typingIndicator');
-            if (indicator) {
-                indicator.remove();
-            }
         }
 
         function showStatus(message, type) {

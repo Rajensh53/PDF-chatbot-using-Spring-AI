@@ -28,11 +28,12 @@ public class ChatService {
 
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("<[^>]*>");
 
-    public String answerQuery(String userQuery, List<Message> conversationHistory) {
-        log.info("User query received: {}", userQuery);
+    public reactor.core.publisher.Flux<String> answerQueryStream(String userQuery, List<Message> conversationHistory) {
+        log.info("User query received for streaming: {}", userQuery);
 
         log.info("Searching for similar documents in vector store...");
-        List<Document> similarDocuments = vectorStore.similaritySearch(userQuery);
+        org.springframework.ai.vectorstore.SearchRequest searchRequest = org.springframework.ai.vectorstore.SearchRequest.query(userQuery).withTopK(3);
+        List<Document> similarDocuments = vectorStore.similaritySearch(searchRequest);
         log.info("Found {} relevant documents.", similarDocuments.size());
 
         String documentContent = similarDocuments.stream()
@@ -46,20 +47,20 @@ public class ChatService {
                 """
                         You are an AI assistant that answers questions strictly based on the provided CONTEXT from a PDF document.
                         
-                                Rules:
+                            Rules:
                                 1. First, determine the type of user query:
-                                   - **Greeting** (e.g., "Hi", "Hello", "Good morning"): Respond politely and briefly, and invite the user to ask a question about the document.
-                                   - **Relevant to the CONTEXT**: Follow rules 2–4 below.
-                                   - **Not relevant to the CONTEXT**: Respond with:
-                                     "Your question does not appear to relate to the provided document. Please ask something related."
+                                    - **Greeting** (e.g., \"Hi\", \"Hello\", \"Good morning\"): Respond politely and briefly, and invite the user to ask a question about the document.
+                                    - **Relevant to the CONTEXT**: Follow rules 2–4 below.
+                                    - **Not relevant to the CONTEXT**: Respond with:
+                                    \"Your question does not appear to relate to the provided document. Please ask something related.\"
                                 2. If the answer is explicitly stated in the CONTEXT, provide it clearly and concisely.
                                 3. If the answer is not explicitly stated but can be logically inferred from the CONTEXT, provide the inferred answer and briefly explain your reasoning.
                                 4. If the answer cannot be found or reasonably inferred, respond exactly with:
-                                   I cannot answer that question based on the provided document.
+                                I cannot answer that question based on the provided document.
                                 5. Use clear, well-structured formatting (bullet points, numbered lists, or short paragraphs) in your responses.
-                        
-                                CONTEXT:
-                                {context}
+                            
+                        CONTEXT:
+                        {context}
                 """
         );
 
@@ -73,14 +74,16 @@ public class ChatService {
 
         Prompt prompt = new Prompt(messages);
 
-        log.info("Generating response from LLM...");
-        var response = chatClient.call(prompt);
-        log.info("LLM response metadata: {}", response.getMetadata());
-        String responseContent = response.getResult().getOutput().getContent();
-        log.info("Response generated.");
+        log.info("Generating streaming response from LLM...");
 
-        // Strip HTML tags from the LLM response before returning
-        return stripHtmlTags(responseContent);
+        return chatClient.stream(prompt)
+                .map(response -> response.getResult().getOutput().getContent())
+                .map(this::stripHtmlTags)
+                .collectList()
+                .map(list -> String.join("", list))
+                .doOnSuccess(s -> log.info("Streaming response completed."))
+                .doOnError(e -> log.error("Error during streaming response", e))
+                .flux();
     }
 
     private String stripHtmlTags(String htmlString) {
@@ -91,4 +94,3 @@ public class ChatService {
         return matcher.replaceAll("");
     }
 }
-
