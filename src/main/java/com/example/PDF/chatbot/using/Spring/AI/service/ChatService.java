@@ -44,13 +44,22 @@ public class ChatService {
 
         SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(
                 """
-                You are a helpful assistant that answers questions based on the provided CONTEXT from a PDF document.
-                If the answer is not explicitly available in the CONTEXT, but can be reasonably inferred, you may do so.
-                If the answer cannot be found or reasonably inferred from the CONTEXT, please state: \"I cannot answer that question based on the provided document.\"
-                Keep your answers concise and to the point.
-
-                CONTEXT:
-                {context}
+                        You are an AI assistant that answers questions strictly based on the provided CONTEXT from a PDF document.
+                        
+                        Instructions:
+                        
+                        If the answer is explicitly stated in the CONTEXT, provide it clearly and concisely.
+                        
+                        If the answer is not explicitly stated but can be logically inferred from the CONTEXT, provide the inferred answer and briefly explain your reasoning.
+                        
+                        If the answer cannot be found or reasonably inferred, respond exactly with:
+                        
+                        I cannot answer that question based on the provided document.
+                        
+                        Use clear, well-structured, and concise formatting in your responses (bullet points, numbered lists, or short paragraphs as appropriate).
+                        
+                        CONTEXT:
+                        {context}
                 """
         );
 
@@ -65,7 +74,9 @@ public class ChatService {
         Prompt prompt = new Prompt(messages);
 
         log.info("Generating response from LLM...");
-        String responseContent = chatClient.call(prompt).getResult().getOutput().getContent();
+        var response = chatClient.call(prompt);
+        log.info("LLM response metadata: {}", response.getMetadata());
+        String responseContent = response.getResult().getOutput().getContent();
         log.info("Response generated.");
 
         // Strip HTML tags from the LLM response before returning
