@@ -8,7 +8,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface UploadedFileRepository extends JpaRepository<UploadedFile, UUID> {
+public interface UploadedFileRepository extends JpaRepository<UploadedFile, Long> {
     Optional<UploadedFile> findByFileName(String fileName);
     Optional<UploadedFile> findByContentHash(String contentHash);
 }

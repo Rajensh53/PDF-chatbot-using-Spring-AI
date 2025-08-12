@@ -2,6 +2,8 @@ package com.example.PDF.chatbot.using.Spring.AI.entity;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -24,6 +26,8 @@ public class UploadedFile {
     @Column(name = "uploaded_at", nullable = false)
     private Instant uploadedAt;
 
+
+
     public UploadedFile() {}
 
     public UploadedFile(String fileName, String contentHash, Instant uploadedAt) {
@@ -34,12 +38,5 @@ public class UploadedFile {
 
     public UUID getId() { return id; }
 
-    public String getFileName() { return fileName; }
-    public void setFileName(String fileName) { this.fileName = fileName; }
 
-    public String getContentHash() { return contentHash; }
-    public void setContentHash(String contentHash) { this.contentHash = contentHash; }
-
-    public Instant getUploadedAt() { return uploadedAt; }
-    public void setUploadedAt(Instant uploadedAt) { this.uploadedAt = uploadedAt; }
 }
