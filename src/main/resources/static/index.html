@@ -180,6 +180,57 @@
             background-color: #e0e0e0;
             cursor: not-allowed;
         }
+
+        .dot-flashing {
+            position: relative;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: var(--primary-dark);
+            color: var(--primary-dark);
+            animation: dotFlashing 1s infinite linear alternate;
+            animation-delay: .5s;
+            display: inline-block;
+            margin: 0 4px;
+        }
+
+        .dot-flashing::before, .dot-flashing::after {
+            content: '';
+            display: inline-block;
+            position: absolute;
+            top: 0;
+        }
+
+        .dot-flashing::before {
+            left: -15px;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: var(--primary-dark);
+            color: var(--primary-dark);
+            animation: dotFlashing 1s infinite alternate;
+            animation-delay: 0s;
+        }
+
+        .dot-flashing::after {
+            left: 15px;
+            width: 10px;
+            height: 10px;
+            border-radius: 5px;
+            background-color: var(--primary-dark);
+            color: var(--primary-dark);
+            animation: dotFlashing 1s infinite alternate;
+            animation-delay: 1s;
+        }
+
+        @keyframes dotFlashing {
+            0% {
+                background-color: var(--primary-dark);
+            }
+            50%, 100% {
+                background-color: rgba(60, 142, 60, 0.2);
+            }
+        }
     </style>
 </head>
 <body>
@@ -230,7 +281,14 @@
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
-                    showStatus(data.error, 'error');
+                    if (data.error.includes('duplicate detected')) {
+                        showStatus(`Already uploaded. Starting chat...`, 'success');
+                        pdfUploaded = true;
+                        enableChat();
+                        addMessage('bot', `📄 PDF "${file.name}" was already processed. Ask questions about it.`);
+                    } else {
+                        showStatus(data.error, 'error');
+                    }
                 } else {
                     showStatus('PDF uploaded successfully!', 'success');
                     pdfUploaded = true;
@@ -252,6 +310,7 @@
             
             addMessage('user', message);
             input.value = '';
+            showTypingIndicator();
             
             fetch(`${API_BASE}/chat`, {
                 method: 'POST',
@@ -260,6 +319,7 @@
             })
             .then(response => response.json())
             .then(data => {
+                hideTypingIndicator();
                 if (data.error) {
                     addMessage('bot', `Error: ${data.error}`);
                 } else {
@@ -267,18 +327,62 @@
                 }
             })
             .catch(error => {
+                hideTypingIndicator();
                 addMessage('bot', 'Sorry, an error occurred.');
                 console.error(error);
             });
+        }
+
+        function formatMessage(content) {
+            // Convert bold and italics
+            content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            content = content.replace(/_(.*?)_/g, '<em>$1</em>');
+
+            // Convert bullet points
+            content = content.replace(/(?:^\s*\*\s.*(?:\n|$))+/gm, (match) => {
+                const items = match.trim().split('\n');
+                const listItems = items.map(item => `<li>${item.replace(/^\s*\*\s/, '')}</li>`).join('');
+                return `<ul>${listItems}</ul>`;
+            });
+
+            // Replace remaining newlines with <br>
+            content = content.replace(/\n/g, '<br>');
+            // Clean up extra <br> tags that might appear after a list
+            content = content.replace(/<\/ul><br>/g, '</ul>');
+            
+            return content;
         }
 
         function addMessage(sender, content) {
             const messages = document.getElementById('chatMessages');
             const div = document.createElement('div');
             div.className = `message ${sender}`;
-            div.textContent = content;
+
+            if (sender === 'bot') {
+                div.innerHTML = formatMessage(content);
+            } else {
+                div.textContent = content;
+            }
+            
             messages.appendChild(div);
             messages.scrollTop = messages.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            const messages = document.getElementById('chatMessages');
+            const indicator = document.createElement('div');
+            indicator.id = 'typingIndicator';
+            indicator.className = 'message bot';
+            indicator.innerHTML = '<div class="dot-flashing"></div>';
+            messages.appendChild(indicator);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function hideTypingIndicator() {
+            const indicator = document.getElementById('typingIndicator');
+            if (indicator) {
+                indicator.remove();
+            }
         }
 
         function showStatus(message, type) {
@@ -299,4 +403,4 @@
         });
     </script>
 </body>
-</html> 
+</html>
