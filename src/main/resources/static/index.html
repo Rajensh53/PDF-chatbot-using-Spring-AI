@@ -289,7 +289,13 @@
                         }
 
                         const chunk = decoder.decode(value, { stream: true });
-                        botResponse += chunk;
+                        const lines = chunk.split('\n');
+                        for (const line of lines) {
+                            if (line.startsWith('data:')) {
+                                botResponse += line.substring(5);
+                            }
+                        }
+
                         const indicator = document.getElementById('typingIndicator');
                         if (indicator) {
                             indicator.innerHTML = formatMessage(botResponse);
